@@ -150,12 +150,24 @@ class _NativeWhisperModel:
         # Access the file path from the backend, similar to how other pipelines handle it
         path_or_stream = conv_res.input._backend.path_or_stream
 
-        if not isinstance(path_or_stream, Path):
-            raise RuntimeError(
-                f"ASR pipeline requires a file path, but got {type(path_or_stream)}"
-            )
+        # Handle both Path and BytesIO inputs
+        if isinstance(path_or_stream, BytesIO):
+            # For BytesIO, we need to write to a temporary file since whisper requires a file path
+            import tempfile
 
-        audio_path: Path = path_or_stream
+            # Create a temporary file with appropriate extension
+            suffix = Path(conv_res.input.file.name).suffix or ".wav"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+                tmp_file.write(path_or_stream.getvalue())
+                audio_path = Path(tmp_file.name)
+            temp_file_created = True
+        elif isinstance(path_or_stream, Path):
+            audio_path = path_or_stream
+            temp_file_created = False
+        else:
+            raise RuntimeError(
+                f"ASR pipeline requires a file path or BytesIO stream, but got {type(path_or_stream)}"
+            )
 
         try:
             conversation = self.transcribe(audio_path)
@@ -180,9 +192,16 @@ class _NativeWhisperModel:
 
         except Exception as exc:
             _log.error(f"Audio tranciption has an error: {exc}")
+            conv_res.status = ConversionStatus.FAILURE
+            return conv_res
 
-        conv_res.status = ConversionStatus.FAILURE
-        return conv_res
+        finally:
+            # Clean up temporary file if created
+            if temp_file_created and audio_path.exists():
+                try:
+                    audio_path.unlink()
+                except Exception as e:
+                    _log.warning(f"Failed to delete temporary file {audio_path}: {e}")
 
     def transcribe(self, fpath: Path) -> list[_ConversationItem]:
         result = self.model.transcribe(

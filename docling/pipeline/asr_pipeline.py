@@ -149,12 +149,12 @@ class _NativeWhisperModel:
     def run(self, conv_res: ConversionResult) -> ConversionResult:
         # Access the file path from the backend, similar to how other pipelines handle it
         path_or_stream = conv_res.input._backend.path_or_stream
-        
+
         if not isinstance(path_or_stream, Path):
             raise RuntimeError(
                 f"ASR pipeline requires a file path, but got {type(path_or_stream)}"
             )
-        
+
         audio_path: Path = path_or_stream
 
         try:
